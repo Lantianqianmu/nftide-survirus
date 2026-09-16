@@ -315,34 +315,4 @@ Merged pre-trimming FASTQs, sample HBV/host+HBV FASTAs and their indexes, and th
 
 `-with-report` and `-with-timeline` write reports at the specified paths. A failed task's work directory contains `.command.sh`, `.command.out`, `.command.err`, and `.exitcode`; check these and the Cutadapt/SurVirus logs when diagnosing a failure.
 
-## Verification ##
 
-The independent custom filtering process was verified through Nextflow 25.10.2 on N10's 411 candidates with the corrected alignment-length calculation:
-
-Mask mode | Initially passing | Final retained | Final rejected
-------------- | ------------- | ------------- | -------------
-`reject` | 297 | 267 | 144
-`flag` | 341 | 295 | 116
-
-No N10 candidates were rescued in these runs. Many additional retained candidates use the one-pair/one-split support rule; passing these computational filters is not independent experimental validation.
-
-The audit tables are in `tests/n10_validation/fixed_reject/` and `tests/n10_validation/fixed_flag/`. Targeted tests in `tests/test_custom_filter.py` cover thresholds, overlapping masking intervals, empty sequences, pairing rescue and deduplication. The synthetic caller smoke test can be run with:
-
-```bash
-bash tests/survirus_smoke_test.sh
-```
-
-## Troubleshooting ##
-
-`java: command not found`: Activate `placseq` before launching Nextflow. Calling Nextflow by its absolute path does not automatically add that environment's Java to PATH. Alternatively:
-
-```bash
-PATH=/home/xrz/miniforge3/envs/placseq/bin:$PATH \
-  /home/xrz/miniforge3/envs/placseq/bin/nextflow run main.nf -resume -bg
-```
-
-`Running in parallel is not supported on Python 2`: Keep Cutadapt at `-j 1`; other SurVirus tasks can still use multiple threads.
-
-`libcrypto.so.1.0.0` missing from Samtools: Check the packages in `survirus`; this previously occurred with an incompatible old Samtools build. Resolve compatible packages within that environment, then recheck Python 2 and its modules. Do not substitute a symlink to a different OpenSSL ABI.
-
-Custom filter compilation failure: Verify `gcc`, `g++`, and `${survirus_dir}/libs/ssw.c` / `ssw_cpp.cpp` are available. The SurVirus installation needs its source files as well as its binaries.
