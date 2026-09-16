@@ -7,6 +7,9 @@ import ctypes
 import json
 import math
 import os
+import re
+import subprocess
+import tempfile
 
 
 def fasta(path):
@@ -62,6 +65,39 @@ def breakpoint(value):
     return chrom, strand, int(start) if strand == '-' else int(end)
 
 
+def sdust_fractions(sequences, executable):
+    """Mask ACGT runs independently: sdust 0.1 mis-offsets ends after N.
+
+    Ambiguous bases break runs and remain unmasked; the denominator is the
+    complete sequence length. Never clamp corrupt legacy BED coordinates.
+    """
+    runs = {}
+    covered = collections.defaultdict(int)
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.fa') as handle:
+        for call_id, (name, seq) in sorted(sequences.items()):
+            for match in re.finditer('[ACGT]+', seq):
+                key = str(len(runs))
+                runs[key] = (call_id, match.group())
+                handle.write('>%s\n%s\n' % (key, match.group()))
+        handle.flush()
+        if runs:
+            output = subprocess.check_output([executable, handle.name]).decode('ascii')
+            intervals = collections.defaultdict(list)
+            for line in output.splitlines():
+                key, start, end = line.split()[:3]
+                start, end = int(start), int(end)
+                if key not in runs or not 0 <= start <= end <= len(runs[key][1]):
+                    raise ValueError('Invalid recomputed sdust interval: ' + line)
+                intervals[key].append((start, end))
+            for key, spans in intervals.items():
+                right = 0
+                for start, end in sorted(spans):
+                    covered[runs[key][0]] += max(0, end - max(start, right))
+                    right = max(right, end)
+    return dict((i, covered[i] / float(len(seq)) if seq else 0.0)
+                for i, (name, seq) in sequences.items())
+
+
 def pair_distance(a, b, minimum, maximum):
     ah, av, bh, bv = a['hbp'], a['vbp'], b['hbp'], b['vbp']
     if ah[0] != bh[0] or av[0] != bv[0] or ah[1] == bh[1] or av[1] == bv[1]:
@@ -79,6 +115,7 @@ def main():
     parser.add_argument('--workdir', required=True)
     parser.add_argument('--outdir', required=True)
     parser.add_argument('--ssw-library')
+    parser.add_argument('--sdust', help='Recompute masks safely from ACGT runs using this executable')
     parser.add_argument('--min-host-pbs', type=float, default=0.8)
     parser.add_argument('--min-pairs', type=int, default=2)
     parser.add_argument('--split-min-pairs', type=int, default=1)
@@ -103,8 +140,12 @@ def main():
         parser.error('--ssw-library is required when deduplication is enabled')
     h = fasta(os.path.join(args.workdir, 'host_bp_seqs.fa'))
     v = fasta(os.path.join(args.workdir, 'virus_bp_seqs.fa'))
-    hm = masked_fractions(os.path.join(args.workdir, 'host_bp_seqs.masked.bed'), h)
-    vm = masked_fractions(os.path.join(args.workdir, 'virus_bp_seqs.masked.bed'), v)
+    if args.sdust:
+        hm = sdust_fractions(h, args.sdust)
+        vm = sdust_fractions(v, args.sdust)
+    else:
+        hm = masked_fractions(os.path.join(args.workdir, 'host_bp_seqs.masked.bed'), h)
+        vm = masked_fractions(os.path.join(args.workdir, 'virus_bp_seqs.masked.bed'), v)
     calls, seen = [], set()
     with open(os.path.join(args.workdir, 'results.remapped.txt')) as handle:
         for line in handle:
