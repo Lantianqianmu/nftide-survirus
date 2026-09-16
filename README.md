@@ -47,7 +47,22 @@ The existing environment paths are:
 
 Nextflow uses `conda.enabled = true` in `nextflow.config`. The Cutadapt, host FASTA indexing, SurVirus, and custom filtering processes declare `conda params.survirus_conda`. The launch shell can therefore stay in `placseq` throughout execution. Do not switch the launch shell to `survirus` to run these tasks manually.
 
-(2) Check the existing installations:
+(2) Create the environments on a new installation. The environment name follows `-n`; version constraints apply to packages, e.g. `python=2.7.15`, not to the environment name.
+
+```bash
+# Workflow launcher: Nextflow and Java only; no SurVirus Python dependencies.
+conda create -n placseq --override-channels -c conda-forge -c bioconda \
+  nextflow=25.10.2 openjdk=17
+
+# Processing tasks: preserve the Python-2-compatible stack.
+conda create -n survirus --override-channels -c conda-forge -c bioconda \
+  python=2.7.15 numpy=1.16.5 pyfaidx=0.7.0 pysam=0.20.0 \
+  cutadapt=1.18 bwa=0.7.18 samtools=1.18 htslib=1.17 sdust=0.1
+```
+
+These version pins reflect the installed Linux environment; a fresh solve of these commands has not been tested. `mamba` can replace `conda`. Do not recreate environments that already exist, and do not install Nextflow into `survirus`. The commands do not compile SurVirus or install the system GCC/G++ toolchain; those remain separate requirements. The launcher environment shown here is minimal for this pipeline, not a recreation of unrelated packages in the existing `placseq` environment.
+
+(3) Activate the launcher environment and check both installations:
 
 ```bash
 conda activate placseq
@@ -63,7 +78,7 @@ conda run -n survirus bash -c 'command -v bwa; command -v sdust; command -v gcc;
 
 On another server, provision the two environments separately with the dependencies above, compile SurVirus, and set `--survirus_conda` and `--survirus_dir` to their actual paths. Keep the SurVirus source `libs/` directory as well as its compiled executables: the custom filter builds its alignment helper from those sources. Record working environments with `conda list -n placseq --explicit` and `conda list -n survirus --explicit` for reproducibility.
 
-(3) Prepare the host FASTA and its BWA index. For prefix `hg38.fa`, the host directory must contain:
+(4) Prepare the host FASTA and its BWA index. For prefix `hg38.fa`, the host directory must contain:
 
 ```text
 hg38.fa
@@ -75,7 +90,6 @@ hg38.fa.sa
 ```
 
 For a new host reference, run `bwa index /path/to/hg38.fa` using the SurVirus environment. The workflow generates the host FASTA `.fai` once in its task directory. Do not supply only the BWA sidecar files: the host FASTA itself is required.
-
 ## Overview ##
 
 This pipeline merges FASTQ files sharing a sample name, trims adapters, and extracts that sample's HBV sequence from a CSV. It then concatenates the host FASTA with the sample-specific HBV FASTA and builds the HBV-only and merged BWA and FASTA indexes.
